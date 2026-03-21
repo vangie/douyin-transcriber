@@ -30,8 +30,9 @@ var rootCmd = &cobra.Command{
 	Short: "Transcribe Douyin video speech to text",
 	Long: `dyt extracts speech from Douyin (抖音) videos and converts it to text.
 
-It takes a Douyin video link as input, downloads the audio track using yt-dlp,
-and transcribes it using OpenAI Whisper API or local whisper.cpp.
+It takes a Douyin video link (short or full URL) as input, downloads the audio
+track directly from Douyin's CDN, and transcribes it using OpenAI Whisper API
+or local whisper.cpp.
 
 Mode auto-detection (default):
   - If OPENAI_API_KEY is set → cloud mode (OpenAI Whisper API)
@@ -42,7 +43,6 @@ Override with flags:
   --local   Force local mode (even if OPENAI_API_KEY is set)
 
 Prerequisites:
-  - yt-dlp: brew install yt-dlp
   - ffmpeg: brew install ffmpeg
   - Cloud mode: export OPENAI_API_KEY=sk-...
   - Local mode: brew install whisper-cpp`,
@@ -83,15 +83,13 @@ func Execute() error {
 func run(cmd *cobra.Command, args []string) error {
 	inputURL := args[0]
 
-	// Resolve mode: --local and --cloud are mutually exclusive
+	// Resolve mode
 	if local && cloud {
 		return fmt.Errorf("--local and --cloud are mutually exclusive")
 	}
 
-	// Auto-detect mode if neither --local nor --cloud is set
 	useLocal := local
 	if !local && !cloud {
-		// Check if API key is available
 		hasKey := apiKey != "" || os.Getenv("OPENAI_API_KEY") != ""
 		useLocal = !hasKey
 	}

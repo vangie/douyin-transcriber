@@ -1,5 +1,6 @@
 // Package resolver handles Douyin URL resolution.
-// It resolves short URLs (v.douyin.com/xxx) to their final form.
+// It supports short URLs (v.douyin.com), full URLs (www.douyin.com/video/ID),
+// and extracts Douyin URLs from text.
 package resolver
 
 import (
@@ -8,49 +9,86 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 )
 
-var douyinShortURLPattern = regexp.MustCompile(`https?://v\.douyin\.com/\S+`)
+var (
+	// douyinURLPattern matches various Douyin URL formats.
+	douyinURLPattern = regexp.MustCompile(`https?://(?:v\.douyin\.com|www\.douyin\.com|m\.douyin\.com|iesdouyin\.com)/[^\s"'<>]+`)
+	// videoIDPattern extracts a video ID from various path formats.
+	videoIDPattern = regexp.MustCompile(`(?:/share)?/video/(\d+)`)
+)
 
-// Resolve takes a Douyin URL (short or full) and resolves it to the final URL.
-// Short URLs like https://v.douyin.com/xxx are followed via HTTP redirects.
-func Resolve(rawURL string) (string, error) {
-	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
+// IsDouyinURL checks if the given string contains a Douyin URL.
+func IsDouyinURL(rawURL string) bool {
+	lower := strings.ToLower(rawURL)
+	return strings.Contains(lower, "douyin.com/")
+}
+
+// ExtractURL finds a Douyin URL in the given text.
+func ExtractURL(text string) string {
+	match := douyinURLPattern.FindString(text)
+	return match
+}
+
+// Resolve takes a Douyin URL (or text containing one) and returns
+// a canonical video URL: https://www.douyin.com/video/<ID>
+func Resolve(input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
 		return "", fmt.Errorf("empty URL")
 	}
 
-	// Extract URL if embedded in text
-	if extracted := ExtractURL(rawURL); extracted != "" {
+	rawURL := input
+	if !strings.HasPrefix(input, "http") {
+		extracted := ExtractURL(input)
+		if extracted == "" {
+			return "", fmt.Errorf("no Douyin URL found in input")
+		}
 		rawURL = extracted
 	}
 
-	// Validate it looks like a Douyin URL
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid URL: %w", err)
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if !strings.Contains(host, "douyin.com") {
+	if !IsDouyinURL(rawURL) {
 		return "", fmt.Errorf("not a Douyin URL: %s", rawURL)
 	}
 
-	// If it's a short URL, resolve redirects
-	if strings.Contains(host, "v.douyin.com") {
-		return resolveRedirects(rawURL)
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parsing URL: %w", err)
 	}
 
-	return rawURL, nil
+	host := strings.ToLower(parsed.Hostname())
+
+	// Short URL: resolve redirects first
+	if strings.Contains(host, "v.douyin.com") {
+		resolved, err := resolveRedirects(rawURL)
+		if err != nil {
+			return "", fmt.Errorf("resolving short URL: %w", err)
+		}
+		rawURL = resolved
+	}
+
+	// Normalize to canonical format
+	return normalizeURL(rawURL)
 }
 
-// resolveRedirects follows HTTP redirects without executing the final request.
+// ResolveVideoID extracts just the video ID from any Douyin URL.
+func ResolveVideoID(input string) (string, error) {
+	resolved, err := Resolve(input)
+	if err != nil {
+		return "", err
+	}
+	return extractVideoID(resolved)
+}
+
 func resolveRedirects(shortURL string) (string, error) {
 	client := &http.Client{
+		Timeout: 15 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
 				return fmt.Errorf("too many redirects")
 			}
-			return http.ErrUseLastResponse
+			return nil
 		},
 	}
 
@@ -58,59 +96,43 @@ func resolveRedirects(shortURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("creating request: %w", err)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
 
-	currentURL := shortURL
-	for i := 0; i < 10; i++ {
-		resp, err := client.Do(req)
-		if err != nil {
-			return "", fmt.Errorf("following redirect: %w", err)
-		}
-		resp.Body.Close()
-
-		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			loc := resp.Header.Get("Location")
-			if loc == "" {
-				return currentURL, nil
-			}
-			// Handle relative redirects
-			locURL, err := url.Parse(loc)
-			if err != nil {
-				return "", fmt.Errorf("parsing redirect location: %w", err)
-			}
-			base, _ := url.Parse(currentURL)
-			resolved := base.ResolveReference(locURL)
-			currentURL = resolved.String()
-
-			req, err = http.NewRequest("GET", currentURL, nil)
-			if err != nil {
-				return "", fmt.Errorf("creating redirect request: %w", err)
-			}
-			req.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1")
-			continue
-		}
-
-		return currentURL, nil
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("following redirects: %w", err)
 	}
+	defer resp.Body.Close()
 
-	return currentURL, nil
+	return resp.Request.URL.String(), nil
 }
 
-// IsDouyinURL checks if the given string contains a Douyin URL.
-func IsDouyinURL(s string) bool {
-	s = strings.ToLower(strings.TrimSpace(s))
-	return strings.Contains(s, "douyin.com")
+// normalizeURL converts iesdouyin.com/share/video/ID or m.douyin.com/... etc
+// to the canonical https://www.douyin.com/video/<ID>
+func normalizeURL(rawURL string) (string, error) {
+	videoID, err := extractVideoID(rawURL)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("https://www.douyin.com/video/%s", videoID), nil
 }
 
-// ExtractURL extracts a Douyin URL from text that may contain other content.
-func ExtractURL(text string) string {
-	if match := douyinShortURLPattern.FindString(text); match != "" {
-		return match
+func extractVideoID(rawURL string) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parsing URL: %w", err)
 	}
-	// Try to find any douyin.com URL
-	re := regexp.MustCompile(`https?://[^\s]*douyin\.com[^\s]*`)
-	if match := re.FindString(text); match != "" {
-		return match
+
+	// Path-based: /video/ID or /share/video/ID
+	matches := videoIDPattern.FindStringSubmatch(parsed.Path)
+	if len(matches) >= 2 {
+		return matches[1], nil
 	}
-	return ""
+
+	// Query parameter: ?modal_id=ID
+	if modalID := parsed.Query().Get("modal_id"); modalID != "" {
+		return modalID, nil
+	}
+
+	return "", fmt.Errorf("cannot extract video ID from URL: %s", rawURL)
 }

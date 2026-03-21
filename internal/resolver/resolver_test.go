@@ -14,6 +14,7 @@ func TestIsDouyinURL(t *testing.T) {
 	}{
 		{"short URL", "https://v.douyin.com/abc123/", true},
 		{"full URL", "https://www.douyin.com/video/123456", true},
+		{"iesdouyin", "https://www.iesdouyin.com/share/video/123", true},
 		{"not douyin", "https://www.youtube.com/watch?v=abc", false},
 		{"empty", "", false},
 		{"just text", "hello world", false},
@@ -93,8 +94,19 @@ func TestResolve_FullDouyinURL(t *testing.T) {
 	}
 }
 
+func TestResolve_NormalizesIesdouyin(t *testing.T) {
+	input := "https://www.iesdouyin.com/share/video/7616660340146752819"
+	expected := "https://www.douyin.com/video/7616660340146752819"
+	got, err := Resolve(input)
+	if err != nil {
+		t.Fatalf("Resolve(%q) error: %v", input, err)
+	}
+	if got != expected {
+		t.Errorf("Resolve(%q) = %q, want %q", input, got, expected)
+	}
+}
+
 func TestResolve_ShortURLRedirect(t *testing.T) {
-	// Set up a test server that redirects
 	finalURL := ""
 	mux := http.NewServeMux()
 	var ts *httptest.Server
@@ -110,8 +122,6 @@ func TestResolve_ShortURLRedirect(t *testing.T) {
 	defer ts.Close()
 	finalURL = ts.URL + "/video/123"
 
-	// We can't test the actual resolve since it checks for douyin.com domain,
-	// but we can test the redirect-following logic by testing resolveRedirects directly
 	resolved, err := resolveRedirects(ts.URL + "/short")
 	if err != nil {
 		t.Fatalf("resolveRedirects error: %v", err)
@@ -122,7 +132,6 @@ func TestResolve_ShortURLRedirect(t *testing.T) {
 }
 
 func TestResolve_ExtractFromText(t *testing.T) {
-	// Full URL in text should be extracted and resolved
 	expected := "https://www.douyin.com/video/7338729384926"
 	text := "Check this: " + expected + " nice!"
 	got, err := Resolve(text)
@@ -131,5 +140,39 @@ func TestResolve_ExtractFromText(t *testing.T) {
 	}
 	if got != expected {
 		t.Errorf("Resolve(%q) = %q, want %q", text, got, expected)
+	}
+}
+
+func TestExtractVideoID(t *testing.T) {
+	tests := []struct {
+		name  string
+		url   string
+		want  string
+	}{
+		{"standard", "https://www.douyin.com/video/7616660340146752819", "7616660340146752819"},
+		{"share path", "https://www.iesdouyin.com/share/video/7616660340146752819?region=CN", "7616660340146752819"},
+		{"with query", "https://www.douyin.com/video/123?extra=stuff", "123"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := extractVideoID(tt.url)
+			if err != nil {
+				t.Fatalf("extractVideoID(%q) error: %v", tt.url, err)
+			}
+			if got != tt.want {
+				t.Errorf("extractVideoID(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveVideoID(t *testing.T) {
+	videoID, err := ResolveVideoID("https://www.douyin.com/video/7616660340146752819")
+	if err != nil {
+		t.Fatalf("ResolveVideoID error: %v", err)
+	}
+	if videoID != "7616660340146752819" {
+		t.Errorf("ResolveVideoID = %q, want 7616660340146752819", videoID)
 	}
 }

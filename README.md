@@ -1,157 +1,81 @@
-# douyin-transcriber (dyt)
+# Douyin Transcriber (dyt)
 
-CLI tool to transcribe Douyin (抖音) video speech to text.
+A CLI tool that transcribes Douyin (抖音) video speech to text.
 
-**Smart mode auto-detection**: Just run `dyt <url>` — it picks the right mode automatically:
-- `OPENAI_API_KEY` set → cloud mode (OpenAI Whisper API)
-- `OPENAI_API_KEY` not set → local mode (whisper.cpp, no API key needed)
+## Features
 
-Override with `--cloud` or `--local` flags when needed.
+- 🔗 **Smart URL resolution** — supports short links (`v.douyin.com`), full URLs, and pasted share text
+- 📥 **Direct CDN download** — no yt-dlp needed, no cookies, no login required
+- 🎙️ **Dual transcription modes**:
+  - **Local mode** — whisper.cpp (free, private, offline)
+  - **Cloud mode** — OpenAI Whisper API (faster, more accurate)
+- 🌐 **Multi-language** — supports Chinese, English, and all languages whisper supports
 
-## Prerequisites
-
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp): `brew install yt-dlp`
-- [ffmpeg](https://ffmpeg.org/): `brew install ffmpeg`
-
-For cloud mode:
-- [OpenAI API key](https://platform.openai.com/api-keys)
-
-For local mode:
-- [whisper.cpp](https://github.com/ggerganov/whisper.cpp): `brew install whisper-cpp`
-
-## Install
-
-### With Homebrew
+## Installation
 
 ```bash
-brew tap vangie/formula
-brew install douyin-transcriber
+brew install vangie/formula/douyin-transcriber
 ```
 
-### With Go
+### Prerequisites
 
-```bash
-go install github.com/vangie/douyin-transcriber@latest
-```
-
-### From releases
-
-Download the binary for your platform from [Releases](https://github.com/vangie/douyin-transcriber/releases).
-
-### Build from source
-
-```bash
-git clone https://github.com/vangie/douyin-transcriber.git
-cd douyin-transcriber
-make build
-```
+- **ffmpeg** — `brew install ffmpeg` (audio extraction)
+- **Local mode** — `brew install whisper-cpp` (auto-downloads models on first run)
+- **Cloud mode** — `export OPENAI_API_KEY=sk-...`
 
 ## Usage
 
-### Quick start (auto-detect mode)
-
 ```bash
-# No API key? Runs locally with whisper.cpp (model auto-downloads)
-dyt "https://v.douyin.com/abc123/"
+# Paste a Douyin share link — local mode (auto-detected when no API key)
+dyt "https://v.douyin.com/n234HvHgzN0/"
 
-# Have an API key? Uses cloud mode automatically
-export OPENAI_API_KEY=sk-...
-dyt "https://v.douyin.com/abc123/"
-```
+# Full URL works too
+dyt "https://www.douyin.com/video/7616660340146752819"
 
-### Cloud mode (OpenAI Whisper API)
+# Paste entire share text — URL is auto-extracted
+dyt "8.46 复制打开抖音，看看【理性避难所的作品】第9集... https://v.douyin.com/n234HvHgzN0/ 05/31"
 
-```bash
-export OPENAI_API_KEY=sk-...
+# Force local mode with language hint
+dyt --local -l zh "https://v.douyin.com/abc123/"
 
-# Basic usage (auto-detected)
-dyt "https://v.douyin.com/abc123/"
-
-# Force cloud mode explicitly
-dyt --cloud "https://v.douyin.com/abc123/"
-
-# With language hint
-dyt -l zh "https://v.douyin.com/abc123/"
+# Cloud mode with custom endpoint (e.g., compatible API)
+dyt --cloud --endpoint "https://api.example.com/v1" "https://v.douyin.com/abc123/"
 
 # Save to file
 dyt -o transcript.txt "https://v.douyin.com/abc123/"
 
-# Custom API endpoint (compatible APIs)
-dyt --endpoint "https://your-api.com/v1/audio/transcriptions" "https://v.douyin.com/abc123/"
+# Keep the downloaded audio
+dyt --keep-audio "https://v.douyin.com/abc123/"
 ```
 
-### Local mode (whisper.cpp, no API key needed)
+### Mode Auto-Detection
+
+| Condition | Mode |
+|-----------|------|
+| `OPENAI_API_KEY` set | Cloud (OpenAI Whisper API) |
+| `OPENAI_API_KEY` not set | Local (whisper.cpp) |
+| `--local` flag | Force local |
+| `--cloud` flag | Force cloud |
+
+### Local Mode Options
 
 ```bash
-# Auto-detected when no OPENAI_API_KEY is set
-dyt "https://v.douyin.com/abc123/"
+# Use a different model (tiny/base/small/medium/large-v3)
+dyt --model-name small -l zh "URL"
 
-# Force local mode (even if API key is set)
-dyt --local "https://v.douyin.com/abc123/"
+# Use a specific model file
+dyt --model-path /path/to/ggml-large-v3.bin "URL"
 
-# Specify model size (tiny/base/small/medium/large-v3)
-dyt --local --model-name large-v3 "https://v.douyin.com/abc123/"
-
-# Use your own model file
-dyt --local --model-path /path/to/ggml-model.bin "https://v.douyin.com/abc123/"
-
-# With language hint and thread count
-dyt --local -l zh -t 8 "https://v.douyin.com/abc123/"
+# Control thread count
+dyt -t 8 "URL"
 ```
 
-### Mode flags
+## How It Works
 
-| Flag | Description |
-|------|-------------|
-| `--local` | Force local whisper.cpp mode (even if API key is set) |
-| `--cloud` | Force cloud mode (requires `OPENAI_API_KEY`) |
-
-> Without either flag, dyt auto-detects: API key present → cloud, absent → local.
-
-### Common flags
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--language` | `-l` | Language hint (ISO 639-1: `zh`, `en`, etc.) |
-| `--output` | `-o` | Write transcript to file |
-| `--keep-audio` | | Keep downloaded audio file |
-
-### Cloud mode flags
-
-| Flag | Description |
-|------|-------------|
-| `--api-key` | OpenAI API key (or set `OPENAI_API_KEY` env var) |
-| `--endpoint` | Custom Whisper API endpoint |
-| `--model` | Whisper model (default: `whisper-1`) |
-| `--prompt` | Context prompt to guide transcription |
-
-### Local mode flags
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--model-name` | | Model to download: `tiny`, `base`, `small`, `medium`, `large-v3` (default: `base`) |
-| `--model-path` | | Path to a local ggml model file |
-| `--threads` | `-t` | Number of CPU threads (0 = auto) |
-
-## Cross-platform Builds
-
-Uses [GoReleaser](https://goreleaser.com/) for building cross-platform binaries:
-
-```bash
-make release-snapshot   # Local snapshot build
-make release            # Full release (requires git tag)
-```
-
-Supported platforms: Linux, macOS, Windows (amd64, arm64).
-
-## Development
-
-```bash
-make test          # Run all tests
-make test-short    # Run tests (skip long-running)
-make build         # Build binary
-make lint          # Run linter
-```
+1. **Resolve** — short URL → follow redirects → extract video ID
+2. **Fetch** — get video info from Douyin's mobile web page (no API key/cookies needed)
+3. **Download** — grab audio from CDN directly
+4. **Transcribe** — whisper.cpp (local) or OpenAI API (cloud)
 
 ## License
 

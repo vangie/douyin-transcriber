@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"regexp"
 	"strings"
 )
 
@@ -52,8 +53,7 @@ func TranscribeLocal(audioPath string, opts LocalOptions) (string, error) {
 	args := []string{
 		"-m", modelPath,
 		"-f", wavPath,
-		"--no-timestamps",
-		"--print-special", "false",
+		"--no-timestamps", "-np",
 	}
 	if opts.Language != "" {
 		args = append(args, "-l", opts.Language)
@@ -77,14 +77,14 @@ func TranscribeLocal(audioPath string, opts LocalOptions) (string, error) {
 // findWhisperBin finds the whisper-cpp binary.
 func findWhisperBin() (string, error) {
 	// Try common names
-	for _, name := range []string{"whisper-cpp", "whisper", "main"} {
+	for _, name := range []string{"whisper-cli", "whisper-cpp", "whisper", "main"} {
 		if path, err := exec.LookPath(name); err == nil {
 			return path, nil
 		}
 	}
 	// macOS brew location
 	if runtime.GOOS == "darwin" {
-		brewPath := "/opt/homebrew/bin/whisper-cpp"
+		brewPath := "/opt/homebrew/bin/whisper-cli"
 		if _, err := os.Stat(brewPath); err == nil {
 			return brewPath, nil
 		}
@@ -164,14 +164,20 @@ func cleanWhisperOutput(raw string) string {
 		if line == "" {
 			continue
 		}
-		// Skip whisper.cpp info/debug lines (they start with specific prefixes)
+		// Skip whisper.cpp info/debug lines
 		if strings.HasPrefix(line, "whisper_") ||
 			strings.HasPrefix(line, "main:") ||
 			strings.HasPrefix(line, "ggml_") ||
-			strings.HasPrefix(line, "system_info:") {
+			strings.HasPrefix(line, "system_info:") ||
+			strings.HasPrefix(line, "load_backend:") {
 			continue
 		}
-		lines = append(lines, line)
+		// Remove special tokens like [_EOT_], [_BEG_], etc.
+		line = regexp.MustCompile(`\[_[A-Z]+_\]`).ReplaceAllString(line, "")
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
 	}
 	return strings.Join(lines, "\n")
 }
