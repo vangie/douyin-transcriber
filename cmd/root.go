@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/babelcloud/douyin-transcriber/internal/downloader"
-	"github.com/babelcloud/douyin-transcriber/internal/resolver"
-	"github.com/babelcloud/douyin-transcriber/internal/transcriber"
+	"github.com/vangie/douyin-transcriber/internal/downloader"
+	"github.com/vangie/douyin-transcriber/internal/resolver"
+	"github.com/vangie/douyin-transcriber/internal/transcriber"
 	"github.com/spf13/cobra"
 )
 

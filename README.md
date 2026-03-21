@@ -21,20 +21,27 @@ For local mode:
 
 ## Install
 
-### From source
+### With Homebrew
 
 ```bash
-go install github.com/babelcloud/douyin-transcriber@latest
+brew tap vangie/formula
+brew install douyin-transcriber
+```
+
+### With Go
+
+```bash
+go install github.com/vangie/douyin-transcriber@latest
 ```
 
 ### From releases
 
-Download the binary for your platform from [Releases](https://github.com/babelcloud/douyin-transcriber/releases).
+Download the binary for your platform from [Releases](https://github.com/vangie/douyin-transcriber/releases).
 
 ### Build from source
 
 ```bash
-git clone https://github.com/babelcloud/douyin-transcriber.git
+git clone https://github.com/vangie/douyin-transcriber.git
 cd douyin-transcriber
 make build
 ```
