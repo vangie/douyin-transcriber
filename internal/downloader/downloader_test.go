@@ -62,7 +62,7 @@ func TestFindAudioFile_MultipleFormats(t *testing.T) {
 
 func TestCleanup(t *testing.T) {
 	// Create a temp dir that looks like our naming convention
-	dir, err := os.MkdirTemp("", "dy2text-test-*")
+	dir, err := os.MkdirTemp("", "dyt-test-*")
 	if err != nil {
 		t.Fatal(err)
 	}

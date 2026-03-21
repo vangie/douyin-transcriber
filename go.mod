@@ -1,4 +1,4 @@
-module github.com/babelcloud/dy2text
+module github.com/babelcloud/douyin-transcriber
 
 go 1.26.1
 

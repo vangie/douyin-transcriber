@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/babelcloud/dy2text/internal/downloader"
-	"github.com/babelcloud/dy2text/internal/resolver"
-	"github.com/babelcloud/dy2text/internal/transcriber"
+	"github.com/babelcloud/douyin-transcriber/internal/downloader"
+	"github.com/babelcloud/douyin-transcriber/internal/resolver"
+	"github.com/babelcloud/douyin-transcriber/internal/transcriber"
 	"github.com/spf13/cobra"
 )
 
@@ -21,9 +21,9 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "dy2text <douyin-url>",
+	Use:   "dyt <douyin-url>",
 	Short: "Transcribe Douyin video speech to text",
-	Long: `dy2text extracts speech from Douyin (抖音) videos and converts it to text.
+	Long: `dyt extracts speech from Douyin (抖音) videos and converts it to text.
 
 It takes a Douyin video link as input, downloads the audio track using yt-dlp,
 and transcribes it using the OpenAI Whisper API.

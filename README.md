@@ -1,4 +1,4 @@
-# dy2text
+# douyin-transcriber (dyt)
 
 CLI tool to transcribe Douyin (抖音) video speech to text.
 
@@ -13,18 +13,18 @@ CLI tool to transcribe Douyin (抖音) video speech to text.
 ### From source
 
 ```bash
-go install github.com/babelcloud/dy2text@latest
+go install github.com/babelcloud/douyin-transcriber@latest
 ```
 
 ### From releases
 
-Download the binary for your platform from [Releases](https://github.com/babelcloud/dy2text/releases).
+Download the binary for your platform from [Releases](https://github.com/babelcloud/douyin-transcriber/releases).
 
 ### Build from source
 
 ```bash
-git clone https://github.com/babelcloud/dy2text.git
-cd dy2text
+git clone https://github.com/babelcloud/douyin-transcriber.git
+cd douyin-transcriber
 make build
 ```
 
@@ -35,19 +35,19 @@ make build
 export OPENAI_API_KEY=sk-...
 
 # Transcribe a Douyin video
-dy2text "https://v.douyin.com/abc123/"
+dyt "https://v.douyin.com/abc123/"
 
 # Save transcript to file
-dy2text -o transcript.txt "https://v.douyin.com/abc123/"
+dyt -o transcript.txt "https://v.douyin.com/abc123/"
 
 # Specify language hint for better accuracy
-dy2text -l zh "https://v.douyin.com/abc123/"
+dyt -l zh "https://v.douyin.com/abc123/"
 
 # Use a custom Whisper API endpoint
-dy2text --endpoint "https://your-api.com/v1/audio/transcriptions" "https://v.douyin.com/abc123/"
+dyt --endpoint "https://your-api.com/v1/audio/transcriptions" "https://v.douyin.com/abc123/"
 
 # Keep the downloaded audio file
-dy2text --keep-audio "https://v.douyin.com/abc123/"
+dyt --keep-audio "https://v.douyin.com/abc123/"
 ```
 
 ### Flags

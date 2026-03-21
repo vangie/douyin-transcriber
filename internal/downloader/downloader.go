@@ -25,7 +25,7 @@ func CheckDependencies() error {
 // If outputDir is empty, a temporary directory is used.
 func DownloadAudio(videoURL, outputDir string) (string, error) {
 	if outputDir == "" {
-		dir, err := os.MkdirTemp("", "dy2text-*")
+		dir, err := os.MkdirTemp("", "dyt-*")
 		if err != nil {
 			return "", fmt.Errorf("creating temp dir: %w", err)
 		}
@@ -86,7 +86,7 @@ func findAudioFile(dir string) (string, error) {
 
 // Cleanup removes the temporary directory created during download.
 func Cleanup(path string) {
-	if strings.Contains(path, "dy2text-") {
+	if strings.Contains(path, "dyt-") {
 		os.RemoveAll(filepath.Dir(path))
 	}
 }

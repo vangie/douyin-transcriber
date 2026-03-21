@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/babelcloud/dy2text/cmd"
+	"github.com/babelcloud/douyin-transcriber/cmd"
 )
 
 var version = "dev"
