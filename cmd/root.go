@@ -19,6 +19,7 @@ var (
 	keepAudio  bool
 	outputFile string
 	local      bool
+	cloud      bool
 	modelPath  string
 	modelName  string
 	threads    int
@@ -32,9 +33,13 @@ var rootCmd = &cobra.Command{
 It takes a Douyin video link as input, downloads the audio track using yt-dlp,
 and transcribes it using OpenAI Whisper API or local whisper.cpp.
 
-Modes:
-  Cloud (default): Uses OpenAI Whisper API (requires OPENAI_API_KEY)
-  Local (--local): Uses whisper.cpp (no API key needed, runs on your machine)
+Mode auto-detection (default):
+  - If OPENAI_API_KEY is set → cloud mode (OpenAI Whisper API)
+  - If OPENAI_API_KEY is NOT set → local mode (whisper.cpp)
+
+Override with flags:
+  --cloud   Force cloud mode (requires OPENAI_API_KEY)
+  --local   Force local mode (even if OPENAI_API_KEY is set)
 
 Prerequisites:
   - yt-dlp: brew install yt-dlp
@@ -50,8 +55,11 @@ func init() {
 	rootCmd.Flags().StringVar(&apiKey, "api-key", "", "OpenAI API key (or set OPENAI_API_KEY)")
 	rootCmd.Flags().StringVar(&endpoint, "endpoint", "", "Whisper API endpoint (for compatible APIs)")
 
+	// Mode flags
+	rootCmd.Flags().BoolVar(&local, "local", false, "Force local whisper.cpp mode (even if OPENAI_API_KEY is set)")
+	rootCmd.Flags().BoolVar(&cloud, "cloud", false, "Force cloud mode (requires OPENAI_API_KEY)")
+
 	// Local mode flags
-	rootCmd.Flags().BoolVar(&local, "local", false, "Use local whisper.cpp instead of OpenAI API")
 	rootCmd.Flags().StringVar(&modelPath, "model-path", "", "Path to local ggml model file")
 	rootCmd.Flags().StringVar(&modelName, "model-name", "base", "Local model to download (tiny, base, small, medium, large-v3)")
 
@@ -75,11 +83,24 @@ func Execute() error {
 func run(cmd *cobra.Command, args []string) error {
 	inputURL := args[0]
 
+	// Resolve mode: --local and --cloud are mutually exclusive
+	if local && cloud {
+		return fmt.Errorf("--local and --cloud are mutually exclusive")
+	}
+
+	// Auto-detect mode if neither --local nor --cloud is set
+	useLocal := local
+	if !local && !cloud {
+		// Check if API key is available
+		hasKey := apiKey != "" || os.Getenv("OPENAI_API_KEY") != ""
+		useLocal = !hasKey
+	}
+
 	// Check dependencies
 	if err := downloader.CheckDependencies(); err != nil {
 		return err
 	}
-	if local {
+	if useLocal {
 		if err := transcriber.CheckLocalDependencies(); err != nil {
 			return err
 		}
@@ -109,7 +130,7 @@ func run(cmd *cobra.Command, args []string) error {
 	// Transcribe
 	fmt.Fprintf(os.Stderr, "Transcribing...\n")
 	var text string
-	if local {
+	if useLocal {
 		fmt.Fprintf(os.Stderr, "Mode: local (whisper.cpp)\n")
 		text, err = transcriber.TranscribeLocal(audioPath, transcriber.LocalOptions{
 			ModelPath: modelPath,

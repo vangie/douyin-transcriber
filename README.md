@@ -2,9 +2,11 @@
 
 CLI tool to transcribe Douyin (抖音) video speech to text.
 
-Supports two modes:
-- **Cloud mode** (default): Uses OpenAI Whisper API
-- **Local mode** (`--local`): Uses whisper.cpp — no API key needed, runs entirely on your machine
+**Smart mode auto-detection**: Just run `dyt <url>` — it picks the right mode automatically:
+- `OPENAI_API_KEY` set → cloud mode (OpenAI Whisper API)
+- `OPENAI_API_KEY` not set → local mode (whisper.cpp, no API key needed)
+
+Override with `--cloud` or `--local` flags when needed.
 
 ## Prerequisites
 
@@ -39,13 +41,27 @@ make build
 
 ## Usage
 
+### Quick start (auto-detect mode)
+
+```bash
+# No API key? Runs locally with whisper.cpp (model auto-downloads)
+dyt "https://v.douyin.com/abc123/"
+
+# Have an API key? Uses cloud mode automatically
+export OPENAI_API_KEY=sk-...
+dyt "https://v.douyin.com/abc123/"
+```
+
 ### Cloud mode (OpenAI Whisper API)
 
 ```bash
 export OPENAI_API_KEY=sk-...
 
-# Basic usage
+# Basic usage (auto-detected)
 dyt "https://v.douyin.com/abc123/"
+
+# Force cloud mode explicitly
+dyt --cloud "https://v.douyin.com/abc123/"
 
 # With language hint
 dyt -l zh "https://v.douyin.com/abc123/"
@@ -60,7 +76,10 @@ dyt --endpoint "https://your-api.com/v1/audio/transcriptions" "https://v.douyin.
 ### Local mode (whisper.cpp, no API key needed)
 
 ```bash
-# Uses whisper.cpp locally — model auto-downloads on first run
+# Auto-detected when no OPENAI_API_KEY is set
+dyt "https://v.douyin.com/abc123/"
+
+# Force local mode (even if API key is set)
 dyt --local "https://v.douyin.com/abc123/"
 
 # Specify model size (tiny/base/small/medium/large-v3)
@@ -73,11 +92,19 @@ dyt --local --model-path /path/to/ggml-model.bin "https://v.douyin.com/abc123/"
 dyt --local -l zh -t 8 "https://v.douyin.com/abc123/"
 ```
 
+### Mode flags
+
+| Flag | Description |
+|------|-------------|
+| `--local` | Force local whisper.cpp mode (even if API key is set) |
+| `--cloud` | Force cloud mode (requires `OPENAI_API_KEY`) |
+
+> Without either flag, dyt auto-detects: API key present → cloud, absent → local.
+
 ### Common flags
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--local` | | Use local whisper.cpp (no API key needed) |
 | `--language` | `-l` | Language hint (ISO 639-1: `zh`, `en`, etc.) |
 | `--output` | `-o` | Write transcript to file |
 | `--keep-audio` | | Keep downloaded audio file |
