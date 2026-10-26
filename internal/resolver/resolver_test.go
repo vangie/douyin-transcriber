@@ -145,9 +145,9 @@ func TestResolve_ExtractFromText(t *testing.T) {
 
 func TestExtractVideoID(t *testing.T) {
 	tests := []struct {
-		name  string
-		url   string
-		want  string
+		name string
+		url  string
+		want string
 	}{
 		{"standard", "https://www.douyin.com/video/7616660340146752819", "7616660340146752819"},
 		{"share path", "https://www.iesdouyin.com/share/video/7616660340146752819?region=CN", "7616660340146752819"},

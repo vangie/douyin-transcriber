@@ -1,8 +1,11 @@
 package downloader
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -47,6 +50,38 @@ func TestCleanup(t *testing.T) {
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("Cleanup should have removed %s", dir)
 		os.RemoveAll(dir)
+	}
+}
+
+func TestFetchVideoInfoFromFeed(t *testing.T) {
+	const body = `{
+	  "status_code": 0,
+	  "aweme_list": [
+	    {"aweme_id": "1", "desc": "other", "video": {"play_addr": {"url_list": ["https://cdn.example/a.mp4"]}}},
+	    {"aweme_id": "7700606818350796082", "desc": "盘点一周AI大事", "video": {
+	      "play_addr": {"url_list": ["https://cdn.example/play.mp4"]},
+	      "play_addr_h264": {"url_list": ["https://cdn.example/h264.mp4"]}
+	    }}
+	  ]
+	}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.RawQuery, "aweme_id=7700606818350796082") {
+			t.Errorf("query %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	old := feedBase
+	feedBase = srv.URL
+	t.Cleanup(func() { feedBase = old })
+
+	info, err := FetchVideoInfo("7700606818350796082")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.VideoURL != "https://cdn.example/h264.mp4" || info.Title != "盘点一周AI大事" {
+		t.Fatalf("%+v", info)
 	}
 }
 

@@ -18,10 +18,17 @@ import (
 
 const (
 	mobileUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/121.0.2277.107 Version/17.0 Mobile/15E148 Safari/604.1"
+	// The share page used to embed play URLs in window._ROUTER_DATA.videoInfoRes.
+	// That field is gone; the mobile feed still returns the requested aweme
+	// (mixed with others) and a playable mp4 that carries the audio track.
+	feedURL = "https://aweme.snssdk.com/aweme/v1/feed/"
 )
 
 // routerDataPattern matches window._ROUTER_DATA in the HTML.
 var routerDataPattern = regexp.MustCompile(`window\._ROUTER_DATA\s*=\s*(.*?)</script>`)
+
+// feedBase overrides the feed endpoint in tests. Empty uses feedURL.
+var feedBase string
 
 // VideoInfo contains extracted video metadata and URLs.
 type VideoInfo struct {
@@ -55,6 +62,8 @@ func DownloadAudio(videoURL string, outputDir string) (string, error) {
 		return "", fmt.Errorf("no downloadable URL found for video %s", videoID)
 	}
 
+	fmt.Fprintf(os.Stderr, "Video: %s\n", oneLine(info.Title))
+
 	// Create output directory
 	if outputDir == "" {
 		outputDir, err = os.MkdirTemp("", "dyt-*")
@@ -83,9 +92,98 @@ func DownloadAudio(videoURL string, outputDir string) (string, error) {
 	return audioPath, nil
 }
 
-// FetchVideoInfo gets video metadata from Douyin's mobile web page.
-// This approach does not require cookies, login, or browser signatures.
+// FetchVideoInfo gets video metadata without cookies or a browser signature.
+// The mobile feed is tried first. The old share-page parser remains as a
+// fallback for responses that still embed videoInfoRes.
 func FetchVideoInfo(videoID string) (*VideoInfo, error) {
+	info, feedErr := fetchFromFeed(videoID)
+	if feedErr == nil {
+		return info, nil
+	}
+	info, pageErr := fetchFromSharePage(videoID)
+	if pageErr == nil {
+		return info, nil
+	}
+	return nil, fmt.Errorf("feed: %v; share page: %v", feedErr, pageErr)
+}
+
+func fetchFromFeed(videoID string) (*VideoInfo, error) {
+	base := feedURL
+	if feedBase != "" {
+		base = feedBase
+	}
+	feed := fmt.Sprintf("%s?aweme_id=%s&version_code=270800&app_name=aweme", base, videoID)
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	req, err := http.NewRequest("GET", feed, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("User-Agent", mobileUA)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetching feed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if err != nil {
+		return nil, fmt.Errorf("reading feed: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("feed status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		StatusCode int `json:"status_code"`
+		AwemeList  []struct {
+			AwemeID string `json:"aweme_id"`
+			Desc    string `json:"desc"`
+			Video   struct {
+				PlayAddr struct {
+					URLList []string `json:"url_list"`
+				} `json:"play_addr"`
+				PlayAddrH264 struct {
+					URLList []string `json:"url_list"`
+				} `json:"play_addr_h264"`
+			} `json:"video"`
+		} `json:"aweme_list"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("parsing feed: %w", err)
+	}
+	if payload.StatusCode != 0 {
+		return nil, fmt.Errorf("feed status_code %d", payload.StatusCode)
+	}
+	for _, item := range payload.AwemeList {
+		if item.AwemeID != videoID {
+			continue
+		}
+		// h264 files from this endpoint carry the aac track. play_addr may be
+		// the same file or a video-only ladder, so prefer h264.
+		videoURL := firstHTTP(item.Video.PlayAddrH264.URLList)
+		if videoURL == "" {
+			videoURL = firstHTTP(item.Video.PlayAddr.URLList)
+		}
+		if videoURL == "" {
+			return nil, fmt.Errorf("aweme %s has no playable url", videoID)
+		}
+		return &VideoInfo{Title: item.Desc, VideoURL: videoURL}, nil
+	}
+	return nil, fmt.Errorf("aweme %s not in feed (%d items)", videoID, len(payload.AwemeList))
+}
+
+func firstHTTP(urls []string) string {
+	for _, u := range urls {
+		if strings.HasPrefix(u, "http") {
+			return u
+		}
+	}
+	return ""
+}
+
+func fetchFromSharePage(videoID string) (*VideoInfo, error) {
 	shareURL := fmt.Sprintf("https://www.iesdouyin.com/share/video/%s", videoID)
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -200,6 +298,9 @@ func downloadFile(url, destPath string) error {
 	}
 	req.Header.Set("User-Agent", mobileUA)
 	req.Header.Set("Referer", "https://www.douyin.com/")
+	// The CDN gzips the mp4 when this is left at the Go default. ffmpeg then
+	// sees a gzip stream instead of an mp4.
+	req.Header.Set("Accept-Encoding", "identity")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -234,6 +335,15 @@ func extractAudio(inputPath, outputPath string) error {
 		return fmt.Errorf("ffmpeg failed: %w\nOutput: %s", err, string(out))
 	}
 	return nil
+}
+
+func oneLine(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) > 80 {
+		return string(r[:80]) + "…"
+	}
+	return s
 }
 
 func extractVideoIDFromURL(videoURL string) (string, error) {

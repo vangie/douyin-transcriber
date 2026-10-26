@@ -89,7 +89,7 @@ func TestTranscribe_MockServer(t *testing.T) {
 
 	got, err := Transcribe(audioPath, Options{
 		APIKey:   "sk-test-key",
-		Endpoint: ts.URL,
+		Endpoint: ts.URL + "/audio/transcriptions",
 		Language: "zh",
 	})
 	if err != nil {
@@ -113,7 +113,7 @@ func TestTranscribe_ServerError(t *testing.T) {
 
 	_, err := Transcribe(audioPath, Options{
 		APIKey:   "sk-invalid",
-		Endpoint: ts.URL,
+		Endpoint: ts.URL + "/audio/transcriptions",
 	})
 	if err == nil {
 		t.Error("Transcribe should error on server error")
@@ -141,7 +141,7 @@ func TestTranscribe_WithPrompt(t *testing.T) {
 
 	_, err := Transcribe(audioPath, Options{
 		APIKey:   "sk-test",
-		Endpoint: ts.URL,
+		Endpoint: ts.URL + "/audio/transcriptions",
 		Prompt:   "这是一个科技视频",
 	})
 	if err != nil {
@@ -170,11 +170,25 @@ func TestTranscribe_CustomModel(t *testing.T) {
 
 	_, err := Transcribe(audioPath, Options{
 		APIKey:   "sk-test",
-		Endpoint: ts.URL,
+		Endpoint: ts.URL + "/audio/transcriptions",
 		Model:    "whisper-large-v3",
 	})
 	if err != nil {
 		t.Fatalf("Transcribe error: %v", err)
+	}
+}
+
+func TestTranscriptionURL(t *testing.T) {
+	cases := map[string]string{
+		"https://api.example.com/v1":                       "https://api.example.com/v1/audio/transcriptions",
+		"https://api.example.com/v1/":                      "https://api.example.com/v1/audio/transcriptions",
+		"https://api.example.com/v1/audio/transcriptions":  "https://api.example.com/v1/audio/transcriptions",
+		"https://api.example.com/v1/audio/transcriptions/": "https://api.example.com/v1/audio/transcriptions",
+	}
+	for in, want := range cases {
+		if got := transcriptionURL(in); got != want {
+			t.Errorf("%s -> %s, want %s", in, got, want)
+		}
 	}
 }
 
@@ -206,7 +220,7 @@ func TestTranscribe_APIKeyFromEnv(t *testing.T) {
 	}()
 
 	_, err := Transcribe(audioPath, Options{
-		Endpoint: ts.URL,
+		Endpoint: ts.URL + "/audio/transcriptions",
 	})
 	if err != nil {
 		t.Fatalf("Transcribe error: %v", err)

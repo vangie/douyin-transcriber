@@ -35,11 +35,26 @@ dyt "https://www.douyin.com/video/7616660340146752819"
 # Paste entire share text — URL is auto-extracted
 dyt "8.46 复制打开抖音，看看【理性避难所的作品】第9集... https://v.douyin.com/n234HvHgzN0/ 05/31"
 
-# Force local mode with language hint
-dyt --local -l zh "https://v.douyin.com/abc123/"
+# Discover models, hear with the best local whisper file, rewrite with Magpie
+dyt -l zh "https://v.douyin.com/abc123/"
 
-# Cloud mode with custom endpoint (e.g., compatible API)
-dyt --cloud --endpoint "https://api.example.com/v1" "https://v.douyin.com/abc123/"
+# See what was found
+dyt --list
+
+# Name the two models separately
+dyt --speech small "https://v.douyin.com/abc123/"
+dyt --chat llama3.1:8b "https://v.douyin.com/abc123/"
+dyt --speech ~/.local/share/whisper-cpp/ggml-large-v3-turbo.bin --chat llama3.1:8b "https://v.douyin.com/abc123/"
+
+# A remote speech service. This is /audio/transcriptions, not the chat /v1
+dyt --speech-url https://api.example.com/v1 "https://v.douyin.com/abc123/"
+dyt --speech whisper-1 --speech-url https://api.example.com/v1 --chat llama3.1:8b "https://v.douyin.com/abc123/"
+
+# Transcribe only
+dyt --no-polish "https://v.douyin.com/abc123/"
+
+# Also look for chat models at one OpenAI-compatible catalog
+dyt --base-url "https://api.example.com/v1" "https://v.douyin.com/abc123/"
 
 # Save to file
 dyt -o transcript.txt "https://v.douyin.com/abc123/"
@@ -48,34 +63,36 @@ dyt -o transcript.txt "https://v.douyin.com/abc123/"
 dyt --keep-audio "https://v.douyin.com/abc123/"
 ```
 
-### Mode Auto-Detection
+### 模型怎么选
 
-| Condition | Mode |
-|-----------|------|
-| `OPENAI_API_KEY` set | Cloud (OpenAI Whisper API) |
-| `OPENAI_API_KEY` not set | Local (whisper.cpp) |
-| `--local` flag | Force local |
-| `--cloud` flag | Force cloud |
+`dyt` 先列出找得到的模型，再各选一个。`--model` 只写名字，不写它在哪。
 
-### Local Mode Options
+找得到的地方：
 
-```bash
-# Use a different model (tiny/base/small/medium/large-v3)
-dyt --model-name small -l zh "URL"
+- 语音：`~/.local/share/whisper-cpp`、`~/.dyt/models`、`~/.cache/whisper` 里的 `ggml-*.bin`。这是 whisper.cpp 的模型文件，不是 OpenAI 兼容接口
+- 润色：Magpie（`127.0.0.1:3425`）、Ollama（`127.0.0.1:11434`），以及 `--base-url` 列出的对话模型
 
-# Use a specific model file
-dyt --model-path /path/to/ggml-large-v3.bin "URL"
+没写 `--speech` 时，语音用最大的本地 ggml 文件。润色用 Magpie 的第一个模型，Magpie 没开就用 Ollama，再没有就用 `--base-url`。
 
-# Control thread count
-dyt -t 8 "URL"
-```
+两个模型分开配置。
+
+- `--speech` 是本地 ggml 的名字或路径。加上 `--speech-url` 之后，同一个 `--speech` 变成远端语音服务上的模型名，默认 `whisper-1`。这个地址要接受 `/v1/audio/transcriptions`。
+- `--chat` 只看 Magpie、Ollama 和 `--base-url` 上的对话模型。
+
+不写的那一边按优先级选。远端语音服务不会被当成润色模型。
+
+`--no-polish` 只做语音转写。`--list` 只打印找到的模型。
+
+`--raw-output` 另外留下润色前的识别稿。whisper.cpp 的线程数由它自己决定，命令行不再透出。
 
 ## How It Works
 
 1. **Resolve** — short URL → follow redirects → extract video ID
 2. **Fetch** — get video info from Douyin's mobile web page (no API key/cookies needed)
 3. **Download** — grab audio from CDN directly
-4. **Transcribe** — whisper.cpp (local) or OpenAI API (cloud)
+4. **Discover** — 找出本机 ggml 语音模型，以及 Magpie、Ollama、`--base-url` 上的润色模型
+5. **Transcribe** — 选中的语音模型
+6. **Polish** — 选中的润色模型。`--no-polish` 跳过
 
 ## License
 

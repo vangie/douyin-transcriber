@@ -5,8 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -16,7 +16,8 @@ const defaultLocalModel = "base"
 type LocalOptions struct {
 	// ModelPath is the path to a ggml model file. If empty, auto-downloads to ~/.dyt/models/.
 	ModelPath string
-	// ModelName selects which model to download (tiny, base, small, medium, large-v3). Default: "base".
+	// ModelName selects which model to download (tiny, base, small, medium, large-v3).
+	// Empty means the caller did not choose one, so an already installed model is used first.
 	ModelName string
 	// Language is an optional ISO 639-1 language code hint.
 	Language string
@@ -39,6 +40,12 @@ func TranscribeLocal(audioPath string, opts LocalOptions) (string, error) {
 	defer os.Remove(wavPath)
 
 	modelPath := opts.ModelPath
+	if modelPath == "" && !modelNameSet(opts) {
+		if found := findInstalledModel(); found != "" {
+			modelPath = found
+			fmt.Fprintf(os.Stderr, "Using installed model: %s\n", modelPath)
+		}
+	}
 	if modelPath == "" {
 		name := opts.ModelName
 		if name == "" {
@@ -118,6 +125,46 @@ func modelsDir() (string, error) {
 	return dir, nil
 }
 
+// modelNameSet reports whether the caller asked for a specific model name.
+func modelNameSet(opts LocalOptions) bool {
+	return opts.ModelName != ""
+}
+
+// preferredModels is the search order when the caller did not name a model.
+// Larger models hear names better, so an installed one wins over downloading base.
+var preferredModels = []string{
+	"ggml-large-v3-turbo.bin",
+	"ggml-large-v3.bin",
+	"ggml-large-v2.bin",
+	"ggml-medium.bin",
+	"ggml-small.bin",
+	"ggml-base.bin",
+	"ggml-tiny.bin",
+}
+
+// findInstalledModel looks in the directories whisper models usually live in.
+func findInstalledModel() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dirs := []string{
+		filepath.Join(home, ".local", "share", "whisper-cpp"),
+		filepath.Join(home, ".dyt", "models"),
+		filepath.Join(home, ".cache", "whisper"),
+	}
+	for _, name := range preferredModels {
+		for _, dir := range dirs {
+			path := filepath.Join(dir, name)
+			info, err := os.Stat(path)
+			if err == nil && info.Size() > 1024*1024 {
+				return path
+			}
+		}
+	}
+	return ""
+}
+
 // ensureModel downloads the model if not already present.
 func ensureModel(name string) (string, error) {
 	dir, err := modelsDir()
@@ -169,7 +216,8 @@ func cleanWhisperOutput(raw string) string {
 			strings.HasPrefix(line, "main:") ||
 			strings.HasPrefix(line, "ggml_") ||
 			strings.HasPrefix(line, "system_info:") ||
-			strings.HasPrefix(line, "load_backend:") {
+			strings.HasPrefix(line, "load_backend:") ||
+			strings.HasPrefix(line, "read_audio_data:") {
 			continue
 		}
 		// Remove special tokens like [_EOT_], [_BEG_], etc.

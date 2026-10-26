@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -49,6 +50,8 @@ func Transcribe(audioPath string, opts Options) (string, error) {
 	endpoint := opts.Endpoint
 	if endpoint == "" {
 		endpoint = defaultWhisperEndpoint
+	} else {
+		endpoint = transcriptionURL(endpoint)
 	}
 
 	model := opts.Model
@@ -125,4 +128,27 @@ func Transcribe(audioPath string, opts Options) (string, error) {
 	}
 
 	return result.Text, nil
+}
+
+// Describe is the endpoint and model printed while a cloud transcription runs.
+func Describe(base, model string) string {
+	if base == "" {
+		base = defaultWhisperEndpoint
+	} else {
+		base = transcriptionURL(base)
+	}
+	if model == "" {
+		model = defaultModel
+	}
+	return base + " model " + model
+}
+
+// transcriptionURL accepts either the full transcriptions URL or an OpenAI
+// compatible base such as https://host/v1.
+func transcriptionURL(endpoint string) string {
+	endpoint = strings.TrimRight(endpoint, "/")
+	if strings.HasSuffix(endpoint, "/audio/transcriptions") {
+		return endpoint
+	}
+	return endpoint + "/audio/transcriptions"
 }

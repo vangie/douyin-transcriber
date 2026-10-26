@@ -37,6 +37,11 @@ func TestCleanWhisperOutput(t *testing.T) {
 			input: "whisper_init: model loaded\n你好世界\n这是一个测试",
 			want:  "你好世界\n这是一个测试",
 		},
+		{
+			name:  "audio reader logs",
+			input: "read_audio_data: reading audio data from 'a.wav' ...\nread_audio_data: trying to decode with miniaudio\n一分钟看完",
+			want:  "一分钟看完",
+		},
 	}
 
 	for _, tt := range tests {
@@ -46,6 +51,33 @@ func TestCleanWhisperOutput(t *testing.T) {
 				t.Errorf("cleanWhisperOutput() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFindInstalledModelPrefersLarger(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".local", "share", "whisper-cpp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(home, ".dyt", "models", "ggml-base.bin")
+	if err := os.MkdirAll(filepath.Dir(base), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	large := filepath.Join(dir, "ggml-large-v3-turbo.bin")
+	for _, p := range []string{base, large} {
+		f, err := os.Create(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Truncate(2 << 20); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	if got := findInstalledModel(); got != large {
+		t.Fatalf("got %s want %s", got, large)
 	}
 }
 
