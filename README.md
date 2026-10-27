@@ -72,7 +72,7 @@ dyt --keep-audio "https://v.douyin.com/abc123/"
 - 语音：`~/.local/share/whisper-cpp`、`~/.dyt/models`、`~/.cache/whisper` 里的 `ggml-*.bin`。这是 whisper.cpp 的模型文件，不是 OpenAI 兼容接口
 - 润色：Magpie（`127.0.0.1:3425`）、Ollama（`127.0.0.1:11434`），以及 `--base-url` 列出的对话模型
 
-没写 `--speech` 时，语音用最大的本地 ggml 文件。润色用 Magpie 的第一个模型，Magpie 没开就用 Ollama，再没有就用 `--base-url`。
+没写 `--speech` 时，语音用最大的本地 ggml 文件。润色默认先用 Magpie，失败再试 Ollama。`--chat ollama-first` 把顺序倒过来。用 `--chat` 点名某个模型时只用那一个。
 
 两个模型分开配置。
 
@@ -93,6 +93,18 @@ dyt --keep-audio "https://v.douyin.com/abc123/"
 4. **Discover** — 找出本机 ggml 语音模型，以及 Magpie、Ollama、`--base-url` 上的润色模型
 5. **Transcribe** — 选中的语音模型
 6. **Polish** — 选中的润色模型。`--no-polish` 跳过
+
+## Raycast
+
+`raycast/` 是 Raycast 扩展。`brew install` 时如果 `/Applications/Raycast.app` 存在，会把扩展编译进 `~/.config/raycast/extensions/douyin-transcript`。
+
+手动导入：
+
+```bash
+cd raycast
+npm install
+npx ray develop
+```
 
 ## License
 

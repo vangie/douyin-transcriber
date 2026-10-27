@@ -71,6 +71,11 @@ func Chat(transcript string, opt Options) (Result, error) {
 	if transcript == "" {
 		return Result{}, fmt.Errorf("empty transcript")
 	}
+	// A caller that already picked a model gets that one request. Fallback
+	// belongs to the caller, which knows the rest of the catalog.
+	if opt.BaseURL != "" && opt.Model != "" {
+		return postChat(transcript, opt, opt.BaseURL, opt.Model)
+	}
 	if opt.Backend == "" {
 		return chatAuto(transcript, opt)
 	}
@@ -85,6 +90,9 @@ func chatAuto(transcript string, opt Options) (Result, error) {
 	}
 	magpieErr := err
 	opt.Backend = Ollama
+	// The failed Magpie model name must not be sent to Ollama.
+	opt.BaseURL = ""
+	opt.Model = ""
 	res, err = chatOne(transcript, opt)
 	if err != nil {
 		return Result{}, fmt.Errorf("magpie: %v; ollama: %v", magpieErr, err)

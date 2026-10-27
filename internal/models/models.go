@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -208,7 +209,84 @@ func speechRank(m Model) int {
 	}
 }
 
-// Magpie outranks Ollama outranks any other OpenAI-compatible catalog.
+// ChatOrder is which provider is tried first when no single model is named.
+// The other providers follow, one model each.
+type ChatOrder string
+
+const (
+	MagpieFirst ChatOrder = "magpie-first"
+	OllamaFirst ChatOrder = "ollama-first"
+)
+
+// ChatCandidates is the polish order. A model name returns that model alone.
+// An order returns one model per provider. A signed-out provider then fails
+// once and the next provider is tried.
+func ChatCandidates(set Set, want string, order ChatOrder) ([]Model, error) {
+	if want != "" && want != string(MagpieFirst) && want != string(OllamaFirst) {
+		hits := match(set.Chat, want)
+		if len(hits) == 0 {
+			return nil, fmt.Errorf("chat model %q was not found", want)
+		}
+		return []Model{best(hits, chatRank)}, nil
+	}
+	if want == string(OllamaFirst) {
+		order = OllamaFirst
+	}
+	if order == "" {
+		order = MagpieFirst
+	}
+	if len(set.Chat) == 0 {
+		return nil, fmt.Errorf("chat model: none found")
+	}
+	list := append([]Model(nil), set.Chat...)
+	sort.SliceStable(list, func(i, j int) bool {
+		return providerRank(list[i], order) < providerRank(list[j], order)
+	})
+	return onePerProvider(list), nil
+}
+
+func providerRank(m Model, order ChatOrder) int {
+	rank := chatRank(m)
+	if order == OllamaFirst {
+		switch m.Where {
+		case "ollama":
+			return 0
+		case "magpie":
+			return 1
+		default:
+			return 2
+		}
+	}
+	return rank
+}
+
+func onePerProvider(list []Model) []Model {
+	seen := map[string]bool{}
+	var out []Model
+	for _, m := range list {
+		if seen[m.Where] {
+			continue
+		}
+		seen[m.Where] = true
+		out = append(out, m)
+	}
+	return out
+}
+
+// Backoff is the wait before polish attempt n, starting at 1s and doubling
+// until 8s. Attempt 1 is the first retry.
+func Backoff(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	d := time.Second << (attempt - 1)
+	if d > 8*time.Second {
+		return 8 * time.Second
+	}
+	return d
+}
+
+// Magpie is the default provider. Ollama follows it.
 func chatRank(m Model) int {
 	switch m.Where {
 	case "magpie":

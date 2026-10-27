@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/vangie/douyin-transcriber/internal/cache"
 )
 
 const (
@@ -40,17 +42,17 @@ type VideoInfo struct {
 // DownloadAudio extracts audio from a Douyin video and saves it locally.
 // videoURL should be a canonical URL: https://www.douyin.com/video/<ID>
 // outputDir is optional; if empty, a temp directory is used.
-func DownloadAudio(videoURL string, outputDir string) (string, error) {
+func DownloadAudio(videoURL string, outputDir string) (string, string, error) {
 	// Extract video ID from URL
 	videoID, err := extractVideoIDFromURL(videoURL)
 	if err != nil {
-		return "", fmt.Errorf("extracting video ID: %w", err)
+		return "", "", fmt.Errorf("extracting video ID: %w", err)
 	}
 
 	// Fetch video info from mobile page
 	info, err := FetchVideoInfo(videoID)
 	if err != nil {
-		return "", fmt.Errorf("fetching video info: %w", err)
+		return "", "", fmt.Errorf("fetching video info: %w", err)
 	}
 
 	// Choose download URL: prefer audio-only, fall back to video
@@ -59,37 +61,29 @@ func DownloadAudio(videoURL string, outputDir string) (string, error) {
 		downloadURL = info.VideoURL
 	}
 	if downloadURL == "" {
-		return "", fmt.Errorf("no downloadable URL found for video %s", videoID)
+		return "", "", fmt.Errorf("no downloadable URL found for video %s", videoID)
 	}
 
 	fmt.Fprintf(os.Stderr, "Video: %s\n", oneLine(info.Title))
 
-	// Create output directory
-	if outputDir == "" {
-		outputDir, err = os.MkdirTemp("", "dyt-*")
-		if err != nil {
-			return "", fmt.Errorf("creating temp dir: %w", err)
-		}
+	dir := outputDir
+	if dir == "" {
+		dir = cache.Dir(videoID)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", "", fmt.Errorf("creating cache dir: %w", err)
+	}
+	mediaPath := filepath.Join(dir, videoID+".mp4")
+	if outputDir == "" && cache.Fresh(mediaPath) {
+		fmt.Fprintf(os.Stderr, "Using cached video: %s\n", mediaPath)
+		return mediaPath, info.Title, nil
 	}
 
-	// Download the media file
-	mediaPath := filepath.Join(outputDir, videoID+".mp4")
 	fmt.Fprintf(os.Stderr, "Downloading from CDN...\n")
 	if err := downloadFile(downloadURL, mediaPath); err != nil {
-		return "", fmt.Errorf("downloading media: %w", err)
+		return "", "", fmt.Errorf("downloading media: %w", err)
 	}
-
-	// Extract audio with ffmpeg
-	audioPath := filepath.Join(outputDir, videoID+".mp3")
-	fmt.Fprintf(os.Stderr, "Extracting audio...\n")
-	if err := extractAudio(mediaPath, audioPath); err != nil {
-		return "", fmt.Errorf("extracting audio: %w", err)
-	}
-
-	// Clean up the video file
-	os.Remove(mediaPath)
-
-	return audioPath, nil
+	return mediaPath, info.Title, nil
 }
 
 // FetchVideoInfo gets video metadata without cookies or a browser signature.
@@ -356,11 +350,12 @@ func extractVideoIDFromURL(videoURL string) (string, error) {
 	return "", fmt.Errorf("cannot extract video ID from: %s", videoURL)
 }
 
-// Cleanup removes the temporary directory for a downloaded audio file.
+// Cleanup removes a one-off download directory. Files under the /tmp/dyt
+// cache are kept until the operating system clears /tmp, or until they are
+// older than the cache TTL and therefore not reused.
 func Cleanup(audioPath string) {
 	dir := filepath.Dir(audioPath)
 	base := filepath.Base(dir)
-	// Only remove directories that match our naming convention
 	if strings.HasPrefix(base, "dyt-") {
 		os.RemoveAll(dir)
 	}

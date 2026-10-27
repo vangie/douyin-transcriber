@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vangie/douyin-transcriber/internal/cache"
 	"github.com/vangie/douyin-transcriber/internal/downloader"
 	"github.com/vangie/douyin-transcriber/internal/models"
 	"github.com/vangie/douyin-transcriber/internal/polish"
@@ -28,6 +31,8 @@ var (
 	noPolish   bool
 	rawOutput  string
 	listOnly   bool
+	history    bool
+	forget     string
 )
 
 var rootCmd = &cobra.Command{
@@ -53,6 +58,7 @@ A speech model and a chat model are chosen separately. They do not share a name.
 A local speech model is a ggml file. The larger file wins.
 A remote speech model is --speech-url plus the name in --speech. It is not a chat model.
 Chat models come from Magpie, then Ollama, then --base-url.
+--chat ollama-first tries Ollama before Magpie.
 
 Prerequisites:
   - ffmpeg: brew install ffmpeg
@@ -69,6 +75,8 @@ func init() {
 	rootCmd.Flags().StringVar(&apiKey, "api-key", "", "Bearer token for --speech-url and --base-url (or OPENAI_API_KEY)")
 	rootCmd.Flags().BoolVar(&noPolish, "no-polish", false, "Transcribe only")
 	rootCmd.Flags().BoolVar(&listOnly, "list", false, "List discovered models and exit")
+	rootCmd.Flags().BoolVar(&history, "history", false, "List transcripts cached in /tmp/dyt and exit")
+	rootCmd.Flags().StringVar(&forget, "forget", "", "Delete one cached video by the id shown in --history")
 	rootCmd.Flags().StringVarP(&language, "language", "l", "", "Language hint for the speech model (zh, en)")
 	rootCmd.Flags().StringVar(&prompt, "prompt", "", "Hint passed to a remote speech model")
 	rootCmd.Flags().BoolVar(&keepAudio, "keep-audio", false, "Keep the downloaded audio file")
@@ -97,6 +105,16 @@ func run(cmd *cobra.Command, args []string) error {
 	found := models.Discover(models.DiscoverOptions{BaseURL: baseURL, APIKey: key})
 	if listOnly {
 		printModels(found)
+		return nil
+	}
+	if history {
+		return printHistory()
+	}
+	if forget != "" {
+		if err := cache.Remove(forget); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "Removed %s\n", forget)
 		return nil
 	}
 	if len(args) != 1 {
@@ -148,14 +166,24 @@ func run(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Resolved: %s\n", videoURL)
 
 	// Download audio
+	videoID := idFromURL(videoURL)
+	speechName := choice.Speech.Ref
+	chatName := ""
+	if choice.Polish {
+		chatName = choice.Chat.Ref
+	}
+	if cached, ok := cache.Load(videoID, speechName, chatName); ok {
+		fmt.Fprintf(os.Stderr, "Using cached transcript: %s\n", videoID)
+		text := cached.Text
+		return writeResult(text)
+	}
+
 	fmt.Fprintf(os.Stderr, "Downloading audio...\n")
-	audioPath, err := downloader.DownloadAudio(videoURL, "")
+	audioPath, videoTitle, err := downloader.DownloadAudio(videoURL, "")
 	if err != nil {
 		return fmt.Errorf("downloading audio: %w", err)
 	}
-	if !keepAudio {
-		defer downloader.Cleanup(audioPath)
-	} else {
+	if keepAudio {
 		fmt.Fprintf(os.Stderr, "Audio saved: %s\n", audioPath)
 	}
 	fmt.Fprintf(os.Stderr, "Audio downloaded: %s\n", audioPath)
@@ -187,19 +215,47 @@ func run(cmd *cobra.Command, args []string) error {
 			}
 			fmt.Fprintf(os.Stderr, "Raw transcript saved to: %s\n", rawOutput)
 		}
-		fmt.Fprintf(os.Stderr, "Polishing...\n")
-		polished, err := polish.Chat(text, polish.Options{
-			BaseURL: choice.Chat.BaseURL,
-			Model:   choice.Chat.Name,
-			APIKey:  choice.Chat.APIKey,
-		})
+		candidates, err := models.ChatCandidates(found, chat, models.MagpieFirst)
 		if err != nil {
-			return fmt.Errorf("polishing: %w", err)
+			return err
 		}
-		text = polished.Text
+		var last error
+		for i, candidate := range candidates {
+			if i > 0 {
+				wait := models.Backoff(i)
+				warn("backing off %s, next model %s", wait, candidate.Ref)
+				time.Sleep(wait)
+			}
+			fmt.Fprintf(os.Stderr, "Polishing with %s...\n", candidate)
+			polished, err := polish.Chat(text, polish.Options{
+				BaseURL: candidate.BaseURL,
+				Model:   candidate.Name,
+				APIKey:  candidate.APIKey,
+			})
+			if err == nil {
+				fmt.Fprintf(os.Stderr, "Polished with %s\n", candidate.Ref)
+				text = polished.Text
+				last = nil
+				break
+			}
+			last = err
+			warn("%s failed: %s", candidate.Ref, oneLine(err.Error()))
+		}
+		if last != nil {
+			return fmt.Errorf("polishing: %w", last)
+		}
 	}
 
-	// Output
+	if err := cache.Save(cache.Record{
+		ID: videoID, Title: videoTitle, URL: videoURL, Input: inputURL,
+		Text: text, Speech: speechName, Chat: chatName,
+	}); err != nil {
+		warn("cache: %s", err)
+	}
+	return writeResult(text)
+}
+
+func writeResult(text string) error {
 	if outputFile != "" {
 		if err := os.WriteFile(outputFile, []byte(text+"\n"), 0644); err != nil {
 			return fmt.Errorf("writing output file: %w", err)
@@ -234,6 +290,42 @@ func speechFile(value string) (models.Model, bool) {
 	return models.Model{
 		Kind: models.KindSpeech, Ref: value, Name: name, Path: value, Where: "whisper.cpp",
 	}, true
+}
+
+func printHistory() error {
+	list, err := cache.List()
+	if err != nil {
+		return err
+	}
+	if list == nil {
+		list = []cache.Record{}
+	}
+	raw, err := json.Marshal(list)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(raw))
+	return nil
+}
+
+func idFromURL(videoURL string) string {
+	parts := strings.Split(strings.TrimRight(videoURL, "/"), "/")
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[len(parts)-1]
+}
+
+func warn(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "warning: "+format+"\n", args...)
+}
+
+func oneLine(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 180 {
+		return s[:180] + "…"
+	}
+	return s
 }
 
 func printModels(set models.Set) {

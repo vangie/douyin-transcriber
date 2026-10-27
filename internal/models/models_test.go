@@ -1,6 +1,9 @@
 package models
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestPickUsesPriorityWhenNothingIsNamed(t *testing.T) {
 	set := Set{
@@ -75,6 +78,35 @@ func TestMissingName(t *testing.T) {
 	set := Set{Speech: []Model{{Kind: KindSpeech, Ref: "base", Path: "/m/a.bin"}}}
 	if _, err := Pick(set, Request{Speech: "nope"}); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestChatCandidatesFallsThroughCatalog(t *testing.T) {
+	set := Set{Chat: []Model{
+		{Kind: KindChat, Ref: "codex/gpt-6-luna", Name: "codex/gpt-6-luna", Where: "magpie"},
+		{Kind: KindChat, Ref: "gemini/gemini-3.5-flash", Name: "gemini/gemini-3.5-flash", Where: "magpie"},
+		{Kind: KindChat, Ref: "llama3.1:8b", Name: "llama3.1:8b", Where: "ollama"},
+	}}
+	got, err := ChatCandidates(set, "", MagpieFirst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Where != "magpie" || got[1].Ref != "llama3.1:8b" {
+		t.Fatalf("%+v", got)
+	}
+	ollamaFirst, err := ChatCandidates(set, string(OllamaFirst), MagpieFirst)
+	if err != nil || ollamaFirst[0].Ref != "llama3.1:8b" {
+		t.Fatalf("%v %+v", err, ollamaFirst)
+	}
+	named, err := ChatCandidates(set, "llama3.1:8b", MagpieFirst)
+	if err != nil || len(named) != 1 || named[0].Ref != "llama3.1:8b" {
+		t.Fatalf("%v %+v", err, named)
+	}
+}
+
+func TestBackoff(t *testing.T) {
+	if Backoff(1) != time.Second || Backoff(2) != 2*time.Second || Backoff(3) != 4*time.Second || Backoff(5) != 8*time.Second {
+		t.Fatalf("%s %s %s %s", Backoff(1), Backoff(2), Backoff(3), Backoff(5))
 	}
 }
 

@@ -11,7 +11,7 @@ import (
 func TestChat(t *testing.T) {
 	var gotModel, gotUser string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
 			t.Errorf("path %s", r.URL.Path)
 		}
 		var req struct {
